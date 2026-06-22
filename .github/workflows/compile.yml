@@ -1,0 +1,43 @@
+name: Automatic Wii Compiler
+
+on: [workflow_dispatch, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitppc:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make the DOL
+        run: |
+          export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+          
+          powerpc-eabi-gcc -g -O2 -Wall -mrvl -mcpu=750 -meabi -mhard-float -DGECKO -DHW_RVL \
+            -I$DEVKITPRO/libogc/include \
+            main.c \
+            -L$DEVKITPRO/libogc/lib/wii -Wl,--start-group -lfat -lwiiuse -lbte -logc -lm -Wl,--end-group \
+            -o boot.elf
+          
+          elf2dol boot.elf boot.dol
+
+      - name: Prepare Release Folder
+        run: |
+          mkdir -p "release/apps/Wii Extend Music"
+          cp boot.dol "release/apps/Wii Extend Music/"
+          
+          if [ -f "meta.xml" ]; then
+            cp "meta.xml" "release/apps/Wii Extend Music/"
+          fi
+          
+          if [ -f "icon.png" ]; then
+            cp "icon.png" "release/apps/Wii Extend Music/"
+          fi
+
+      - name: Save the ready Release Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wii_Extend_Music_Package
+          path: release/
