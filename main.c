@@ -11,13 +11,17 @@
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
-// Wii Music Game IDs for the three main regions (PAL, NTSC-U, NTSC-J)
+// Real NAND Wii Music Paths
 const char* REGIONS[] = {
-    "/title/00010000/52363450", // R64P (PAL)
-    "/title/00010000/52363445", // R64E (USA)
-    "/title/00010000/5236344a" // R64J (JAP)
+    "/title/00010000/52363450/data/data.bin", // PAL
+    "/title/00010000/52363445/data/data.bin", // USA
+    "/title/00010000/5236344a/data/data.bin" // JAP
 };
 const char* REGION_NAMES[] = { "PAL (Europe)", "NTSC (USA)", "NTSC-J (Japan)" };
+
+#define SAVE_BUFFER_SIZE (1024 * 1024) 
+char *saveBuffer = NULL;
+long saveFileSize = 0;
 
 void InitialiseVideo() {
     VIDEO_Init();
@@ -32,81 +36,97 @@ void InitialiseVideo() {
     console_init(xfb, 20, 20, rmode->fbWidth, rmode->xfbHeight, rmode->fbWidth * VI_DISPLAY_PIX_SZ);
 }
 
-int CopyFile(const char *srcPath, const char *destPath) {
-    FILE *src = fopen(srcPath, "rb");
-    if (!src) return -1;
+int ReadNandToBuffer(const char* nandPath) {
+    ISFS_Initialize();
+    s32 fd = ISFS_Open(nandPath, ISFS_OPEN_READ);
+    if (fd < 0) {
+        ISFS_Deinitialize();
+        return -1; 
+    }
+    if (!saveBuffer) saveBuffer = malloc(SAVE_BUFFER_SIZE);
+    saveFileSize = ISFS_Read(fd, saveBuffer, SAVE_BUFFER_SIZE);
+    ISFS_Close(fd);
+    ISFS_Deinitialize(); 
+    return (saveFileSize > 0) ? 0 : -2;
+}
 
-    FILE *dest = fopen(destPath, "wb");
+int WriteBufferToUsb(const char* usbPath) {
+    if (!fatInitDefault()) return -3;
+    mkdir("usb:/WiiExtendMusic", 0777);
+    FILE *dest = fopen(usbPath, "wb");
     if (!dest) {
-        fclose(src);
-        return -2;
+        fatUnmount("usb:/");
+        return -4; 
     }
-
-    char buffer;
-    size_t bytesRead;
-    while ((bytesRead = fread(&buffer, 1, sizeof(buffer), src)) > 0) {
-        fwrite(&buffer, 1, bytesRead, dest);
-    }
-
-    fclose(src);
+    fwrite(saveBuffer, 1, saveFileSize, dest);
     fclose(dest);
+    fatUnmount("usb:/"); 
     return 0;
 }
 
-int CheckWiiMusicRegion() {
-    static char nameList[ISFS_MAXPATH] __attribute__((aligned(32)));
-    u32 numEntries = 0;
-    
-    for (int i = 0; i < 3; i++) {
-        s32 ret = ISFS_ReadDir(REGIONS[i], nameList, &numEntries);
-        if (ret >= 0) return i; // Returns the index of the found region
+int ReadUsbToBuffer(const char* usbPath) {
+    if (!fatInitDefault()) return -3;
+    FILE *src = fopen(usbPath, "rb");
+    if (!src) {
+        fatUnmount("usb:/");
+        return -5;
     }
-    return -1; // Game save not found on NAND
+    if (!saveBuffer) saveBuffer = malloc(SAVE_BUFFER_SIZE);
+    fseek(src, 0, SEEK_END);
+    saveFileSize = ftell(src);
+    fseek(src, 0, SEEK_SET);
+    fread(saveBuffer, 1, saveFileSize, src);
+    fclose(src);
+    fatUnmount("usb:/");
+    return 0;
+}
+
+int WriteBufferToNand(const char* nandPath) {
+    ISFS_Initialize();
+    s32 fd = ISFS_Open(nandPath, ISFS_OPEN_WRITE);
+    if (fd < 0) {
+        ISFS_Deinitialize();
+        return -1;
+    }
+    s32 ret = ISFS_Write(fd, saveBuffer, saveFileSize);
+    ISFS_Close(fd);
+    ISFS_Deinitialize();
+    return (ret >= 0) ? 0 : -6;
 }
 
 int main(int argc, char **argv) {
     InitialiseVideo();
    
     printf("\n ======================================= ");
-    printf("\n WII EXTEND MUSIC MANAGER v1.0.0 ");
+    printf("\n WII EXTEND MUSIC MANAGER v1.0.1 ");
     printf("\n ======================================= \n\n");
 
-    s32 isfs_status = ISFS_Initialize();
-    if (isfs_status != 0) {
-        printf("[ERROR] NAND initialization failed! Code: %d\n", isfs_status);
-        while(1);
+    int regIdx = -1;
+    ISFS_Initialize();
+    for (int i = 0; i < 3; i++) {
+        s32 fd = ISFS_Open(REGIONS[i], ISFS_OPEN_READ);
+        if (fd >= 0) {
+            ISFS_Close(fd);
+            regIdx = i;
+            break;
+        }
     }
+    ISFS_Deinitialize();
 
-    int usb_retry = 0;
-    bool usb_mounted = false;
-    while (usb_retry < 5 && !usb_mounted) {
-        if (fatInitDefault()) { usb_mounted = true; } 
-        else { usb_retry++; sleep(1); }
-    }
-
-    if (!usb_mounted) {
-        printf("[ERROR] Failed to mount USB storage! Please insert a FAT32 drive.\n");
-        while(1);
-    }
-
-    int regIdx = CheckWiiMusicRegion();
     if (regIdx == -1) {
-        printf("[ERROR] Wii Music save data not found on real NAND!\n");
-        printf("Please launch the game at least once to create a save file.\n");
+        printf("[ERROR] Wii Music save data NOT found on Real NAND!\n");
+        printf("Please run the game normally once to create a save.\n");
     } else {
         printf("[SUCCESS] Detected Wii Music region: %s\n\n", REGION_NAMES[regIdx]);
-        mkdir("usb:/WiiExtendMusic", 0777);
     }
 
     int current_slot = 1;
-    char nandPath[ISFS_MAXPATH];
-    char usbPath[ISFS_MAXPATH];
-    snprintf(nandPath, sizeof(nandPath), "%s/data/data.bin", REGIONS[regIdx]);
+    char usbFilePath[256];
 
     printf("REMOTE CONTROLS:\n");
     printf(" -> D-PAD RIGHT / LEFT: Change USB Slot\n");
-    printf(" -> BUTTON A: Export 100 videos from NAND to USB (Backup)\n");
-    printf(" -> BUTTON B: Import videos from USB to NAND (Restore)\n");
+    printf(" -> BUTTON A: Export 100 videos from Wii to USB (Backup)\n");
+    printf(" -> BUTTON B: Import videos from USB to Wii (Restore)\n");
     printf(" -> HOME BUTTON: Exit\n\n");
 
     while(1) {
@@ -124,28 +144,38 @@ int main(int argc, char **argv) {
         }
 
         if (pressed & WPAD_BUTTON_A && regIdx != -1) {
-            printf("\n[PROCESSING] Exporting data...");
-            snprintf(usbPath, sizeof(usbPath), "usb:/WiiExtendMusic/wiimusic_slot_%d.bin", current_slot);
-            int res = CopyFile(nandPath, usbPath);
-            if (res == 0) printf("\n[OK] Videos successfully saved to USB Slot %d!\n", current_slot);
-            else printf("\n[ERROR] Save file not found or write-protected. Code: %d\n", res);
+            printf("\n[BACKUP] Reading from Real NAND...");
+            int readRes = ReadNandToBuffer(REGIONS[regIdx]);
+            if (readRes == 0) {
+                printf(" [OK]\n[BACKUP] Writing to USB Storage...");
+                snprintf(usbFilePath, sizeof(usbFilePath), "usb:/WiiExtendMusic/wiimusic_slot_%d.bin", current_slot);
+                int writeRes = WriteBufferToUsb(usbFilePath);
+                if (writeRes == 0) printf(" [SUCCESS!]\n-> Saved to USB Slot %d.\n", current_slot);
+                else printf(" [FAILED] USB Error: %d\n", writeRes);
+            } else {
+                printf(" [FAILED] NAND Error: %d\n", readRes);
+            }
         }
 
         if (pressed & WPAD_BUTTON_B && regIdx != -1) {
-            printf("\n[PROCESSING] Importing data...");
-            snprintf(usbPath, sizeof(usbPath), "usb:/WiiExtendMusic/wiimusic_slot_%d.bin", current_slot);
-            int res = CopyFile(usbPath, nandPath);
-            if (res == 0) printf("\n[OK] Slot %d successfully loaded to your Wii!\n", current_slot);
-            else printf("\n[ERROR] No backup file found in USB Slot %d.\n", current_slot);
+            printf("\n[RESTORE] Reading from USB...");
+            snprintf(usbFilePath, sizeof(usbFilePath), "usb:/WiiExtendMusic/wiimusic_slot_%d.bin", current_slot);
+            int readRes = ReadUsbToBuffer(usbFilePath);
+            if (readRes == 0) {
+                printf(" [OK]\n[RESTORE] Writing to Real NAND...");
+                int writeRes = WriteBufferToNand(REGIONS[regIdx]);
+                if (writeRes == 0) printf(" [SUCCESS!]\n-> Slot %d loaded into Wii.\n", current_slot);
+                else printf(" [FAILED] NAND Write Error: %d\n", writeRes);
+            } else {
+                printf(" [FAILED] USB Read Error: %d\n", readRes);
+            }
         }
 
-        if (pressed & WPAD_BUTTON_HOME) {
-            break;
-        }
+        if (pressed & WPAD_BUTTON_HOME) break;
         VIDEO_WaitVSync();
     }
 
-    ISFS_Deinitialize();
+    if (saveBuffer) free(saveBuffer);
     exit(0);
     return 0;
 }
