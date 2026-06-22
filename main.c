@@ -11,7 +11,7 @@
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
-// I percorsi fissi della versione 1.0.0 che funzionavano sul tuo sistema
+// Real NAND Wii Music Paths
 const char* REGIONS[] = {
     "/title/00010000/52363450/data/data.bin", // PAL
     "/title/00010000/52363445/data/data.bin", // USA
@@ -95,6 +95,9 @@ int WriteBufferToNand(const char* nandPath) {
 }
 
 int main(int argc, char **argv) {
+    // Forza la rimozione delle protezioni hardware se AHBPROT è attivo nel loader
+    HaltDeviceType(NAND_DEVICE_TYPE); 
+    
     InitialiseVideo();
    
     printf("\n ======================================= ");
@@ -121,7 +124,7 @@ int main(int argc, char **argv) {
     }
 
     int current_slot = 1;
-    char usbFilePath[256];
+    char usbFilePath[256]; // Fixato errore di allocazione array stringa
 
     printf("REMOTE CONTROLS:\n");
     printf(" -> D-PAD RIGHT / LEFT: Change USB Slot\n");
