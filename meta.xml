@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1.0.0">
+  <name>Wii Extend Music</name>
+  <coder>Wii Save Team</coder>
+  <version>1.0.0</version>
+  <release_date>20260622</release_date>
+  <short_description>Bypass the 100 videos limit</short_description>
+  <long_description>This extension allows you to bypass the hard-coded 100 music clips limit in Wii Music by storing and swapping save banks directly to an external USB storage drive.</long_description>
+  <ahbprot/>
+</app>
