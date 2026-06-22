@@ -11,7 +11,7 @@
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
-// Real NAND Wii Music Paths
+// I percorsi fissi della versione 1.0.0 che funzionavano sul tuo sistema
 const char* REGIONS[] = {
     "/title/00010000/52363450/data/data.bin", // PAL
     "/title/00010000/52363445/data/data.bin", // USA
