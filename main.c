@@ -95,9 +95,6 @@ int WriteBufferToNand(const char* nandPath) {
 }
 
 int main(int argc, char **argv) {
-    // Forza la rimozione delle protezioni hardware se AHBPROT è attivo nel loader
-    HaltDeviceType(NAND_DEVICE_TYPE); 
-    
     InitialiseVideo();
    
     printf("\n ======================================= ");
@@ -124,7 +121,7 @@ int main(int argc, char **argv) {
     }
 
     int current_slot = 1;
-    char usbFilePath[256]; // Fixato errore di allocazione array stringa
+    char usbFilePath[256]; // Fixata allocazione array stringa
 
     printf("REMOTE CONTROLS:\n");
     printf(" -> D-PAD RIGHT / LEFT: Change USB Slot\n");
